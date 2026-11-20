@@ -1,51 +1,37 @@
-import React, { useState, useEffect } from 'react';
-import zeroFrame from '../epixnet/zeroframe.js';
+import { useEffect, useState } from 'react';
+import { getEpixFrame, useSiteInfo } from '../epixnet/useEpixFrame.js';
 
 /**
- * Component that displays detailed site statistics and information
+ * Xite statistics. siteInfo is pushed by the wrapper whenever the xite
+ * changes, so only the file list is fetched here.
  */
 const SiteStats = () => {
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const siteInfo = useSiteInfo();
+  const [files, setFiles] = useState(null);
   const [error, setError] = useState(null);
+  const modified = siteInfo?.content?.modified;
 
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        setLoading(true);
-        
-        // Get comprehensive site information
-        const siteInfo = await zeroFrame.cmd('siteInfo');
-        
-        // Get file list to calculate more detailed stats
-        const fileList = await zeroFrame.cmd('fileList');
-        
-        // Calculate additional statistics
-        const fileCount = Object.keys(fileList).length;
-        const totalSize = Object.values(fileList).reduce((sum, file) => sum + (file.size || 0), 0);
-        
-        setStats({
-          ...siteInfo,
-          fileCount,
-          totalSize,
-          fileList
-        });
-        
-        setLoading(false);
-      } catch (err) {
-        console.error('Failed to fetch site stats:', err);
-        setError(err.message);
-        setLoading(false);
-      }
+    let cancelled = false;
+    getEpixFrame()
+      .cmd('fileList', { inner_path: '' })
+      .then((list) => {
+        if (!cancelled) setFiles(list);
+      })
+      .catch((err) => {
+        if (!cancelled) setError((err && err.error) || String(err));
+      });
+    return () => {
+      cancelled = true;
     };
+  }, [modified]);
 
-    fetchStats();
-    
-    // Set up periodic updates every 30 seconds
-    const interval = setInterval(fetchStats, 30000);
-    
-    return () => clearInterval(interval);
-  }, []);
+  const loading = !siteInfo || (files === null && !error);
+  const stats = siteInfo && {
+    ...siteInfo,
+    fileCount: files ? files.length : 0,
+    totalSize: siteInfo.settings?.size || 0,
+  };
 
   const formatBytes = (bytes) => {
     if (bytes === 0) return '0 Bytes';
@@ -62,7 +48,7 @@ const SiteStats = () => {
   if (loading) {
     return (
       <div className="site-stats loading">
-        <h3>Site Statistics</h3>
+        <h3>Xite Statistics</h3>
         <div className="loading-content">
           <div className="spinner-small"></div>
           <span>Loading statistics...</span>
@@ -74,10 +60,9 @@ const SiteStats = () => {
   if (error) {
     return (
       <div className="site-stats error">
-        <h3>Site Statistics</h3>
+        <h3>Xite Statistics</h3>
         <div className="error-content">
           <span>Error loading stats: {error}</span>
-          <button onClick={() => window.location.reload()}>Retry</button>
         </div>
       </div>
     );
@@ -85,7 +70,7 @@ const SiteStats = () => {
 
   return (
     <div className="site-stats">
-      <h3>Site Statistics</h3>
+      <h3>Xite Statistics</h3>
       
       <div className="stats-grid">
         <div className="stat-card">
@@ -104,14 +89,14 @@ const SiteStats = () => {
         </div>
         
         <div className="stat-card">
-          <div className="stat-value">{stats.settings?.size_limit ? formatBytes(stats.settings.size_limit) : 'Unlimited'}</div>
+          <div className="stat-value">{stats.size_limit ? formatBytes(stats.size_limit * 1024 * 1024) : 'Unknown'}</div>
           <div className="stat-label">Size Limit</div>
         </div>
       </div>
       
       <div className="detailed-info">
         <div className="info-section">
-          <h4>Site Information</h4>
+          <h4>Xite Information</h4>
           <div className="info-grid">
             <div className="info-item">
               <strong>Address:</strong>
@@ -142,20 +127,20 @@ const SiteStats = () => {
           <div className="info-grid">
             <div className="info-item">
               <strong>Status:</strong>
-              <span className={`status ${stats.serving ? 'serving' : 'not-serving'}`}>
-                {stats.serving ? 'Serving' : 'Not Serving'}
+              <span className={`status ${stats.settings?.serving ? 'serving' : 'not-serving'}`}>
+                {stats.settings?.serving ? 'Serving' : 'Not Serving'}
               </span>
             </div>
             
             <div className="info-item">
-              <strong>Downloaded:</strong>
-              <span>{formatBytes(stats.settings?.downloaded || 0)}</span>
+              <strong>Received:</strong>
+              <span>{formatBytes(stats.settings?.bytes_recv || 0)}</span>
             </div>
             
             {stats.settings?.own && (
               <div className="info-item">
                 <strong>Ownership:</strong>
-                <span className="status own">You own this site</span>
+                <span className="status own">You own this xite</span>
               </div>
             )}
           </div>
@@ -165,8 +150,8 @@ const SiteStats = () => {
           <div className="info-section">
             <h4>Permissions</h4>
             <div className="permissions-list">
-              {stats.settings.permissions.map((permission, index) => (
-                <span key={index} className="permission-tag">
+              {stats.settings.permissions.map((permission) => (
+                <span key={permission} className="permission-tag">
                   {permission}
                 </span>
               ))}

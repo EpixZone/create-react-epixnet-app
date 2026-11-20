@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import zeroFrame from '../epixnet/zeroframe.js';
+import { useState } from 'react';
+import { getEpixFrame } from '../epixnet/useEpixFrame.js';
 
 /**
  * Component that demonstrates common EpixNet API calls
@@ -9,15 +9,18 @@ const ApiExample = () => {
   const [loading, setLoading] = useState({});
   const [errors, setErrors] = useState({});
 
-  const executeCommand = async (commandName, command, params = []) => {
+  const executeCommand = async (commandName, command, params = [], noReply = false) => {
     setLoading(prev => ({ ...prev, [commandName]: true }));
     setErrors(prev => ({ ...prev, [commandName]: null }));
     
     try {
-      const result = await zeroFrame.cmd(command, ...params);
+      // Some wrapper commands (notifications, history) never answer, so
+      // their promise would never settle: send them without waiting.
+      const pending = getEpixFrame().cmd(command, params);
+      const result = noReply ? 'Sent (the wrapper does not answer this command)' : await pending;
       setResults(prev => ({ ...prev, [commandName]: result }));
     } catch (error) {
-      setErrors(prev => ({ ...prev, [commandName]: error.message }));
+      setErrors(prev => ({ ...prev, [commandName]: (error && error.error) || String(error) }));
     } finally {
       setLoading(prev => ({ ...prev, [commandName]: false }));
     }
@@ -27,7 +30,7 @@ const ApiExample = () => {
     {
       name: 'siteInfo',
       command: 'siteInfo',
-      description: 'Get comprehensive information about the current site',
+      description: 'Get information about this xite',
       params: []
     },
     {
@@ -39,20 +42,27 @@ const ApiExample = () => {
     {
       name: 'fileList',
       command: 'fileList',
-      description: 'List all files in the site',
-      params: []
+      description: 'List every file of the xite',
+      params: { inner_path: '' }
     },
     {
       name: 'dbQuery',
       command: 'dbQuery',
-      description: 'Query the site database (if available)',
-      params: ['SELECT * FROM json WHERE 1 LIMIT 5']
+      description: 'Query the xite database (needs a dbschema.json)',
+      params: ['SELECT * FROM json LIMIT 5']
     },
     {
       name: 'wrapperNotification',
       command: 'wrapperNotification',
       description: 'Show a notification to the user',
-      params: ['info', 'Hello from EpixNet API!', 3000]
+      params: ['info', 'Hello from EpixNet API!', 3000],
+      noReply: true
+    },
+    {
+      name: 'wrapperGetLocalStorage',
+      command: 'wrapperGetLocalStorage',
+      description: 'Read the storage the wrapper keeps for this xite (use instead of localStorage)',
+      params: []
     }
   ];
 
@@ -76,7 +86,7 @@ const ApiExample = () => {
               <p>{api.description}</p>
               
               <button
-                onClick={() => executeCommand(api.name, api.command, api.params)}
+                onClick={() => executeCommand(api.name, api.command, api.params, api.noReply)}
                 disabled={loading[api.name]}
                 className="execute-btn"
               >
@@ -84,7 +94,7 @@ const ApiExample = () => {
               </button>
             </div>
             
-            {api.params.length > 0 && (
+            {Object.keys(api.params).length > 0 && (
               <div className="command-params">
                 <strong>Parameters:</strong>
                 <code>{JSON.stringify(api.params)}</code>
@@ -105,7 +115,7 @@ const ApiExample = () => {
               </div>
             )}
             
-            {results[api.name] && !loading[api.name] && (
+            {api.name in results && !loading[api.name] && (
               <div className="command-result">
                 <strong>Result:</strong>
                 <pre>{formatResult(results[api.name])}</pre>
@@ -118,28 +128,28 @@ const ApiExample = () => {
       <div className="api-documentation">
         <h4>Learn More</h4>
         <p>
-          These are just a few examples of the EpixNet API. For a complete list of available commands,
-          check the <a href="https://epixnet.io/docs/api/" target="_blank" rel="noopener noreferrer">
-          EpixNet API documentation</a>.
+          These are a few of the commands the EpixNet wrapper accepts. <code>src/epixnet/epixframe.esm.js</code>{' '}
+          has a helper method for most of the others.
         </p>
-        
+
         <div className="code-example">
           <h5>Usage in Your Components:</h5>
-          <pre>{`import zeroFrame from './epixnet/zeroframe.js';
+          <pre>{`import { getEpixFrame, getStorage, setStorage } from './epixnet/useEpixFrame.js';
 
-// Basic API call
-const siteInfo = await zeroFrame.cmd('siteInfo');
+// Any command, with its parameters as an object or a list
+const siteInfo = await getEpixFrame().cmd('siteInfo');
+const files = await getEpixFrame().cmd('fileList', { inner_path: 'data/' });
 
-// API call with parameters
-const files = await zeroFrame.cmd('fileList', 'data/');
-
-// Handle errors
+// Errors reject the promise with { error: '...' }
 try {
-  const result = await zeroFrame.cmd('someCommand');
-  console.log(result);
-} catch (error) {
-  console.error('API call failed:', error);
-}`}</pre>
+  await getEpixFrame().cmd('fileGet', { inner_path: 'missing.json' });
+} catch (err) {
+  console.error('API call failed:', err.error);
+}
+
+// Storage that works in the sandboxed frame
+const prefs = (await getStorage()) || {};
+await setStorage({ ...prefs, theme: 'dark' });`}</pre>
         </div>
       </div>
     </div>

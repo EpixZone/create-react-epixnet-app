@@ -1,101 +1,97 @@
 # EpixNet React App
 
 This project was created with [create-react-epixnet-app](https://github.com/EpixZone/create-react-epixnet-app).
+It is a React app built with Vite into an EpixNet xite.
 
-## Getting Started
-
-### Development
-
-```bash
-npm run start
-```
-
-Builds and deploys a development version with hot reloading to your EpixNet site.
-
-### Production Build
+## Workflow
 
 ```bash
-npm run build
+npm start        # development build, rebuilt and copied into the xite on every change
+npm run build    # production build, copied into the xite
+npm run sync     # copy the current dist/ into the xite again
 ```
 
-Builds and deploys a production version of your site.
+Each build is copied into the xite folder named by `EPIX_XITE_DIR` in
+`.env.local` (ignored by git). Open the xite in EpixNet to see it:
 
-## Configuration
+    http://127.0.0.1:42222/<xite address>/
 
-This project is configured to work with your EpixNet site through environment variables:
+The node uses port 42222 unless it was busy; the port it chose is in the
+`ui_port` file of its data folder. Reload the page after a rebuild.
 
-- `REACT_APP_SITE_DATA_PATH`: Path to your EpixNet site data directory
-- `REACT_APP_SITE_ADDRESS`: Your site's address/identifier
+When it looks right, run `npm run build` (so you do not publish a development
+build), open the sidebar on the xite and choose **Sign & Publish**.
 
-These variables are automatically set in the `.env` file during project creation and are ignored by git for security.
+### What the copy never touches
 
-## EpixNet Features
+`scripts/sync-xite.sh` copies only the build. It never overwrites or deletes:
 
-This project includes several example components that demonstrate common EpixNet patterns:
+- `content.json`, at any depth (the signed manifest and its includes)
+- `.sign-cache.json` (the signer's cache)
+- `data/` (user content and anything else you keep there)
 
-### Example Components
+Every other file in the xite folder that is not part of the build is removed,
+so use a xite that belongs to this project only. Files the xite needs that are
+not built (for example `data/users/content.json` with the rules for user
+content) belong directly in the xite folder. A `dbschema.json` can live in
+`public/` and is copied like any other file.
 
-- **`src/components/UserInfo.js`** - Displays user authentication status and certificate information
-- **`src/components/SiteStats.js`** - Shows real-time site statistics and network information
-- **`src/components/ApiExample.js`** - Interactive examples of EpixNet API calls
+## Writing a xite
 
-### Site Configuration in React
+The page runs inside the EpixNet wrapper's iframe, often in a sandbox with an
+opaque origin, and many peers have no clearnet access. So:
 
-You can access your site configuration in React components using environment variables:
+- **Everything is local.** No CDN scripts, no Google Fonts, no remote images.
+  Put files in `public/` or import them. Paths stay relative (`base: './'`).
+- **Hash routes.** The wrapper serves one `index.html`; use `#/page` links.
+  `useHashRoute()` in `src/epixnet/useEpixFrame.js` returns the current route
+  and mirrors it into the wrapper's address bar so it can be bookmarked. With
+  react-router, use `HashRouter`, never `BrowserRouter`.
+- **No localStorage, cookies, IndexedDB or service worker.** They throw in the
+  sandbox. Use `getStorage()` / `setStorage()`, which the wrapper keeps per
+  xite and identity. Never touch `localStorage` at module top level, where an
+  exception stops the whole app.
+- **One script, one stylesheet.** `vite.config.js` builds a single classic
+  script, because a module script or a lazily loaded chunk is a CORS request
+  that the sandbox can refuse. Do not use `import()` for code splitting.
+- **Your own files:** `fetch()` of the xite's own files needs the wrapper's
+  ajax key in the sandbox. Read them with `getEpixFrame().cmd('fileGet', { inner_path: 'file.json' })`
+  instead.
+
+## Talking to EpixNet
+
+`src/epixnet/epixframe.esm.js` is the EpixFrame library (the bridge to the
+wrapper). `src/epixnet/useEpixFrame.js` wraps it for React:
 
 ```javascript
-// Get the site address
-const siteAddress = process.env.REACT_APP_SITE_ADDRESS;
+import { getEpixFrame, useEpixFrame, useSiteInfo, getStorage, setStorage } from './epixnet/useEpixFrame.js';
 
-// Get the data path (useful for development)
-const siteDataPath = process.env.REACT_APP_SITE_DATA_PATH;
+function Title() {
+  const siteInfo = useSiteInfo();      // kept current by the wrapper (setSiteInfo)
+  return <h1>{siteInfo?.content.title}</h1>;
+}
+
+function Status() {
+  const { connected, serverInfo } = useEpixFrame();
+  return <p>{connected ? `EpixNet ${serverInfo?.version}` : 'Connecting...'}</p>;
+}
+
+// Anywhere, also outside components:
+const rows = await getEpixFrame().cmd('dbQuery', ['SELECT * FROM json LIMIT 5']);
+await getEpixFrame().cmd('certXid');   // let the user choose an xID identity
+const prefs = (await getStorage()) || {};
+await setStorage({ ...prefs, theme: 'dark' });
 ```
 
-See `src/SiteConfig.example.js` for a complete example.
+The example components in `src/components/` show user status, xite
+statistics and a few API calls.
 
-### Using the ZeroFrame API
+## Sharing the source
 
-The project includes a pre-configured ZeroFrame API client:
-
-```javascript
-import zeroFrame from './epixnet/zeroframe.js';
-
-// Get site information
-const siteInfo = await zeroFrame.cmd('siteInfo');
-
-// Show a notification
-await zeroFrame.cmd('wrapperNotification', ['info', 'Hello EpixNet!', 3000]);
-
-// Handle user authentication
-const certInfo = await zeroFrame.cmd('certSelect');
+```bash
+git init
+git add .
+git commit -m "Initial commit"
 ```
 
-## Sharing Your Project
-
-### GitHub Setup
-
-1. Initialize git repository:
-
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit"
-   ```
-
-2. Create a new repository on GitHub
-
-3. Add remote and push:
-
-   ```bash
-   git remote add origin https://github.com/yourusername/your-repo-name.git
-   git branch -M main
-   git push -u origin main
-   ```
-
-The `.env` file containing your local site paths will be automatically ignored by git, so your local configuration stays private while your code can be shared.
-
-## Learn More
-
-- [React Documentation](https://reactjs.org/)
-- [Create React App Documentation](https://facebook.github.io/create-react-app/docs/getting-started)
-- [EpixNet Documentation](https://epixnet.io/docs/)
+`.env.local` (your local xite path) is ignored by git.
