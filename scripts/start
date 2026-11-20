@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+for cmd in inotifywait rsync; do
+  if ! [ -x "$(command -v $cmd)" ]; then
+    echo "error: $cmd is not installed" >&2
+    exit 1
+  fi
+done
+
+set -e
+trap 'clean; exit' SIGINT
+
+clean() {
+    echo "Cleaning up..." >&2
+    if [ -L dist ]; then
+        rm -f dist
+    fi
+    if [ -d build ]; then
+        rm -rf build
+    fi
+    # Kill any background processes
+    jobs -p | xargs -r kill
+}
+
+source "$(dirname "$0")/config"
+PATH="$PATH:./node_modules/.bin"
+
+if ! [ -f ./package.json ]; then
+  echo "Current working directory is not the root of the project" >&2
+  exit 1
+fi
+
+echo "Starting EpixNet development server..."
+echo "Site directory: $SITE_DIR"
+
+# Initial build and sync
+echo "Building initial version..."
+react-scripts build
+echo "Syncing to EpixNet site directory..."
+rsync -av --delete build/ "$SITE_DIR/"
+
+# Start file watcher for source changes
+echo "Watching for changes in src/ and public/ directories..."
+while true; do
+  # Watch for changes in src and public directories
+  inotifywait -r -e modify,create,delete,move src public 2>/dev/null
+  echo "Changes detected, rebuilding..."
+
+  # Rebuild and sync
+  if react-scripts build; then
+    echo "Build successful, syncing to EpixNet..."
+    rsync -av --delete build/ "$SITE_DIR/"
+    echo "Sync complete. Site updated at: http://127.0.0.1:43110/$(basename "$SITE_DIR")"
+  else
+    echo "Build failed, skipping sync"
+  fi
+
+  # Small delay to avoid rapid rebuilds
+  sleep 1
+done
+
