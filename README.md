@@ -85,7 +85,7 @@ See the generated project's README for how to write a xite with it.
 ## Files in this repository
 
 - `create-react-epixnet-app.sh`: the generator.
-- `js/epixframe.esm.js`: copy of `dist/epixframe.esm.js` (version 1.1.0)
+- `js/epixframe.esm.js`: copy of `dist/epixframe.esm.js` (version 1.1.1)
   from [EpixZone/epixframe](https://github.com/EpixZone/epixframe), commit
   2acba61 on its `fix/node-compat` branch. Replace it to update the copy new
   projects get.
